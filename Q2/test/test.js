@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const fs = require("fs");
-const { groth16 } = require("snarkjs");
+const { groth16, plonk } = require("snarkjs");
 
 function unstringifyBigInts(o) {
     if ((typeof(o) == "string") && (/^[0-9]+$/.test(o) ))  {
@@ -35,22 +35,23 @@ describe("HelloWorld", function () {
 
     it("Should return true for correct proof", async function () {
         //[assignment] Add comments to explain what each line is doing
+		// In the next line, fullProve returns the proof (json) and the list of all public signals and stores them to the corresponding variables. 
         const { proof, publicSignals } = await groth16.fullProve({"a":"1","b":"2"}, "contracts/circuits/HelloWorld/HelloWorld_js/HelloWorld.wasm","contracts/circuits/HelloWorld/circuit_final.zkey");
 
-        console.log('1x2 =',publicSignals[0]);
+        console.log('1x2 =',publicSignals[0]); // prints "1x2 =" and the value of 1st index of publicSignals.
 
-        const editedPublicSignals = unstringifyBigInts(publicSignals);
-        const editedProof = unstringifyBigInts(proof);
-        const calldata = await groth16.exportSolidityCallData(editedProof, editedPublicSignals);
+        const editedPublicSignals = unstringifyBigInts(publicSignals); // converts from string to big integers
+        const editedProof = unstringifyBigInts(proof); // same as above
+        const calldata = await groth16.exportSolidityCallData(editedProof, editedPublicSignals); // calldata stores the output in a format which can easily be fed to solidity code generated.
     
-        const argv = calldata.replace(/["[\]\s]/g, "").split(',').map(x => BigInt(x).toString());
+        const argv = calldata.replace(/["[\]\s]/g, "").split(',').map(x => BigInt(x).toString()); // argv splits the data such that calldata can be easily used.
     
         const a = [argv[0], argv[1]];
         const b = [[argv[2], argv[3]], [argv[4], argv[5]]];
         const c = [argv[6], argv[7]];
         const Input = argv.slice(8);
 
-        expect(await verifier.verifyProof(a, b, c, Input)).to.be.true;
+        expect(await verifier.verifyProof(a, b, c, Input)).to.be.true; // calls verifyProof from HelloWorldVerifier.sol and checks if the proof is valid or not. In the test, we want this to be true.
     });
     it("Should return false for invalid proof", async function () {
         let a = [0, 0];
@@ -63,30 +64,96 @@ describe("HelloWorld", function () {
 
 
 describe("Multiplier3 with Groth16", function () {
+	let Verifier;
+	let verifier;
 
     beforeEach(async function () {
         //[assignment] insert your script here
+		Verifier = await ethers.getContractFactory("Multiplier3Verifier");
+		verifier = await Verifier.deploy();
     });
 
     it("Should return true for correct proof", async function () {
         //[assignment] insert your script here
+
+		const {proof, publicSignals} = await groth16.fullProve({"a":"2", "b":"3", "c":"5"}, "contracts/circuits/Multiplier3/Multiplier3_js/Multiplier3.wasm", "contracts/circuits/Multiplier3/circuit_final.zkey");
+		// console.log("Proof generated:", proof);
+		// console.log("List of public signals: ", publicSignals);
+
+		console.log("2x3x5: ", publicSignals[0]);
+
+		const editedPublicSignals = unstringifyBigInts(publicSignals);
+        const editedProof = unstringifyBigInts(proof);
+        const calldata = await groth16.exportSolidityCallData(editedProof, editedPublicSignals);
+
+		const argv = calldata.replace(/["[\]\s]/g, "").split(',').map(x => BigInt(x).toString());
+    
+        const a = [argv[0], argv[1]];
+        const b = [[argv[2], argv[3]], [argv[4], argv[5]]];
+        const c = [argv[6], argv[7]];
+        const Input = argv.slice(8);
+
+        expect(await verifier.verifyProof(a, b, c, Input)).to.be.true;
+
     });
     it("Should return false for invalid proof", async function () {
         //[assignment] insert your script here
+		let a = [0, 0];
+        let b = [[0, 0], [0, 0]];
+        let c = [0, 0];
+        let d = [0]
+        expect(await verifier.verifyProof(a, b, c, d)).to.be.false;
     });
 });
 
 
 describe("Multiplier3 with PLONK", function () {
+	let Verifier;
+	let verifier;
 
     beforeEach(async function () {
         //[assignment] insert your script here
+		Verifier = await ethers.getContractFactory("Multiplier3_plonkVerifier");
+		// console.log("here a");
+		verifier = await Verifier.deploy();
+		// console.log("here c");
     });
 
     it("Should return true for correct proof", async function () {
         //[assignment] insert your script here
+
+		const {proof, publicSignals} = await plonk.fullProve({"a":"7", "b":"11", "c":"13"}, "contracts/circuits/Multiplier3_plonk/Multiplier3_js/Multiplier3.wasm", "contracts/circuits/Multiplier3_plonk/circuit_0000.zkey");
+		// console.log("Proof generated:", proof);
+		// console.log("List of public signals: ", publicSignals);
+
+		console.log("7x11x13: ", publicSignals[0]);
+
+		const editedPublicSignals = unstringifyBigInts(publicSignals);
+        const editedProof = unstringifyBigInts(proof);
+		// console.log(editedPublicSignals)
+        const calldata = await plonk.exportSolidityCallData(editedProof, editedPublicSignals);
+
+		// const argv = calldata.replace(/["[\]\s]/g, "").split(',').map(x => BigInt(x).toString());
+		const argv = calldata.replace(/["[\]\s]/g, "").split(',');
+
+		expect(await verifier.verifyProof(argv[0], [argv[1].toString()])).to.be.true;
     });
     it("Should return false for invalid proof", async function () {
         //[assignment] insert your script here
+		
+		const {proof, publicSignals} = await plonk.fullProve({"a":"7", "b":"11", "c":"13"}, "contracts/circuits/Multiplier3_plonk/Multiplier3_js/Multiplier3.wasm", "contracts/circuits/Multiplier3_plonk/circuit_0000.zkey");
+
+		publicSignals[0] = publicSignals[0] + 1;
+
+		console.log("Now, equating 7x11x13 to ", publicSignals[0]);
+
+		const editedPublicSignals = unstringifyBigInts(publicSignals);
+        const editedProof = unstringifyBigInts(proof);
+		// console.log(editedPublicSignals)
+        const calldata = await plonk.exportSolidityCallData(editedProof, editedPublicSignals);
+
+		// const argv = calldata.replace(/["[\]\s]/g, "").split(',').map(x => BigInt(x).toString());
+		const argv = calldata.replace(/["[\]\s]/g, "").split(',');
+        expect(await verifier.verifyProof(argv[0], [argv[1]])).to.be.false;
     });
 });
